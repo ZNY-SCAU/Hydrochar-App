@@ -40,9 +40,11 @@ USER_DEFAULTS = {
 if 'params' not in st.session_state:
     st.session_state.params = {}
     # 遍历模型真正需要的特征进行初始化
+    # 🔥 修正：只初始化模型真正用到的数值特征
     for feat in st.session_state.backend.ui_numeric_cols:
-        val = USER_DEFAULTS.get(feat, 0.0)
-        st.session_state.params[feat] = val
+        if feat in st.session_state.backend.model_features:
+            val = USER_DEFAULTS.get(feat, 0.0)
+            st.session_state.params[feat] = val
 
 if 'results' not in st.session_state:
     st.session_state.results = {}
@@ -55,7 +57,7 @@ def check_activation_logic():
     1. 如果 活化剂用量、浓度、时间 任意一个接近 0 -> 强制方法选 '0'
     2. 如果 方法选了 '0' -> 强制数值归零
     """
-    # 获取当前值
+    # 安全获取当前值（防止特征被剔除后报错）
     slr = st.session_state.params.get('activation-SLR(g/L)', 0.0)
     conc = st.session_state.params.get('activator-concentration(mol/L)', 0.0)
     time = st.session_state.params.get('activation-time(h)', 0.0)
@@ -73,11 +75,18 @@ def check_activation_logic():
                 break
         
         if method != target_opt:
+            # 更新 session_state 中的值，这会自动更新 selectbox
             st.session_state['activation-method'] = target_opt
-            st.session_state.params['activation-SLR(g/L)'] = 0.0
-            st.session_state.params['activator-concentration(mol/L)'] = 0.0
-            st.session_state.params['activation-time(h)'] = 0.0
-            st.session_state.params['activation-T(℃)'] = 0.0
+            
+            # 同时也把其他数值强行抹平（如果该特征存在于 params 中）
+            if 'activation-SLR(g/L)' in st.session_state.params:
+                st.session_state.params['activation-SLR(g/L)'] = 0.0
+            if 'activator-concentration(mol/L)' in st.session_state.params:
+                st.session_state.params['activator-concentration(mol/L)'] = 0.0
+            if 'activation-time(h)' in st.session_state.params:
+                st.session_state.params['activation-time(h)'] = 0.0
+            if 'activation-T(℃)' in st.session_state.params:
+                st.session_state.params['activation-T(℃)'] = 0.0
 
 def is_activation_locked():
     """判断活化参数是否应该锁定 (灰色不可选)"""
@@ -104,11 +113,11 @@ if st.session_state.backend.ui_cat_cols:
     for i, cat in enumerate(st.session_state.backend.ui_cat_cols):
         opts = st.session_state.backend.cat_options.get(cat, [])
         
-        # 🔥🔥🔥【已修正】直接调用，不要赋值给 session_state，Streamlit 会自动处理 🔥🔥🔥
+        # 直接调用，不赋值
         cols_cat[i].selectbox(
             cat, 
             opts, 
-            key=cat, 
+            key=cat
             # 活化方法的改变是单向控制，不需要回调
         )
 
@@ -132,10 +141,17 @@ for (g_name, g_feats), loc in zip(structure_groups.items(), locs):
     with loc:
         st.markdown(f"#### {g_name}")
         
-        valid_feats = [f for f in g_feats if f in st.session_state.backend.ui_numeric_cols]
+        # 🚀【关键修正】严格过滤：必须同时满足以下两个条件才显示：
+        # 1. 在 ui_numeric_cols 列表中（这是最初的列表）
+        # 2. 在 backend.model_features 列表中（这是模型真正用到的特征，已剔除共线性的）
+        valid_feats = [
+            f for f in g_feats 
+            if f in st.session_state.backend.ui_numeric_cols 
+            and f in st.session_state.backend.model_features
+        ]
         
         if not valid_feats:
-            st.caption("*No parameters in this group used by model*")
+            st.caption("*No parameters used in model*")
             continue
 
         for feat in valid_feats:
@@ -167,7 +183,7 @@ for (g_name, g_feats), loc in zip(structure_groups.items(), locs):
 
             with c2:
                 if feat in activation_feats and is_activation_locked():
-                    st.markdown("<span class='lock-text'>🔒 Locked (Method=0)</span>", unsafe_allow_html=True)
+                    st.markdown("<span class='lock-text'>🔒 Locked</span>", unsafe_allow_html=True)
                 else:
                     st.caption(f"[{stat['min']:.2f}-{stat['max']:.2f}]")
                     if feat in st.session_state.results:
@@ -195,7 +211,11 @@ if st.button("RUN OPTIMIZATION", type="primary", use_container_width=True):
     for cat in st.session_state.backend.ui_cat_cols:
         inputs[cat] = st.session_state[cat]
     
+    # 只收集模型需要的特征
     for feat in st.session_state.backend.ui_numeric_cols:
+        if feat not in st.session_state.backend.model_features:
+            continue
+            
         if feat in activation_feats and is_activation_locked():
             val = 0.0
         else:
