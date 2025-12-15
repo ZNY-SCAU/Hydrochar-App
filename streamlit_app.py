@@ -14,7 +14,6 @@ st.markdown("""
     .success-text { color: #27AE60; font-weight: bold; }
     .warning-text { color: #E74C3C; font-weight: bold; }
     .lock-text { color: #95A5A6; font-style: italic; }
-    /* 隐藏菜单 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
@@ -23,13 +22,12 @@ st.markdown("""
 # ================= 2. 初始化模型 =================
 if 'backend' not in st.session_state:
     st.session_state.backend = ModelBackend()
-    # 尝试加载模型
     success, msg = st.session_state.backend.load_model()
     if not success:
         st.error(f"Failed to load model: {msg}")
         st.stop()
 
-# 定义默认值 (User Defaults)
+# 定义默认值
 USER_DEFAULTS = {
     'H(%)': 6.08, 'N(%)': 0.98, 'S(%)': 0.09, '(O+N)/C': 1.106, 'H/C': 0.136,
     'hydrothermal-T(℃)': 230.0, 'hydrothermal-time(h)': 0.5, 'hydrothermal-SLR(g/ml)': 0.167,
@@ -45,6 +43,7 @@ if 'params' not in st.session_state:
     for feat in st.session_state.backend.ui_numeric_cols:
         val = USER_DEFAULTS.get(feat, 0.0)
         st.session_state.params[feat] = val
+
 if 'results' not in st.session_state:
     st.session_state.results = {}
 
@@ -67,23 +66,26 @@ def is_locked(feat):
 
 # ================= 4. 界面布局 =================
 
-# 标题
 st.title("Hydrochar Process Prediction & Optimization System")
 st.markdown("*Machine Learning Based Dual-Target Analysis*")
 
 # --- 1. Experimental Conditions ---
 st.markdown("### 1. Experimental Conditions")
-cols_cat = st.columns(len(st.session_state.backend.ui_cat_cols))
-for i, cat in enumerate(st.session_state.backend.ui_cat_cols):
-    opts = st.session_state.backend.cat_options.get(cat, [])
-    # 确保 key 的一致性
-    key = cat if cat != 'activation-method' else 'activation-method'
-    st.session_state[key] = cols_cat[i].selectbox(cat, opts, key=key)
+
+# 动态计算列数（防止除零错误）
+n_cols = len(st.session_state.backend.ui_cat_cols)
+if n_cols > 0:
+    cols_cat = st.columns(n_cols)
+    for i, cat in enumerate(st.session_state.backend.ui_cat_cols):
+        opts = st.session_state.backend.cat_options.get(cat, [])
+        key = cat if cat != 'activation-method' else 'activation-method'
+        
+        # 🔥🔥🔥【修正】不要赋值，直接渲染，Streamlit 会自动存入 session_state[key] 🔥🔥🔥
+        cols_cat[i].selectbox(cat, opts, key=key)
 
 # --- 2. Process Parameters ---
 st.markdown("### 2. Process Parameters")
 
-# 定义分组
 groups = {
     'Raw Material': ['H(%)', 'N(%)', 'S(%)', '(O+N)/C', 'H/C', 'C(%)', 'O(%)'],
     'Hydrothermal': ['hydrothermal-T(℃)', 'hydrothermal-time(h)', 'hydrothermal-SLR(g/ml)'],
@@ -91,7 +93,6 @@ groups = {
     'Adsorption': ['adsorption-SLR(g/L)', 'RPM(r/min)', 'adsorption-time(h)', 'pH', 'initial-NH4+-N(mg/L)', 'adsorption-T(℃)']
 }
 
-# 创建两行布局
 row1 = st.columns(2)
 row2 = st.columns(2)
 group_locations = [row1[0], row1[1], row2[0], row2[1]]
@@ -104,21 +105,16 @@ for (g_name, g_cols), loc in zip(groups.items(), group_locations):
                 stat = st.session_state.backend.stats.get(feat, {'min':0, 'max':100})
                 c1, c2 = st.columns([2, 1])
                 
-                # Checkbox for optimization
                 is_opt = c1.checkbox(feat, key=f"chk_{feat}")
-                
-                # Lock logic
                 disabled = is_opt or is_locked(feat)
-                display_val = 0.0 if is_locked(feat) else st.session_state.params[feat]
+                display_val = 0.0 if is_locked(feat) else st.session_state.params.get(feat, 0.0)
                 
-                # Number Input
                 new_val = c1.number_input(
                     label="Value", 
                     value=float(display_val),
                     label_visibility="collapsed",
                     disabled=disabled,
                     key=f"in_{feat}",
-                    # 只有 Activation 组的参数触发联动
                     on_change=on_activation_change if feat in groups['Activation'] else None,
                     args=(feat,) if feat in groups['Activation'] else None
                 )
@@ -126,7 +122,6 @@ for (g_name, g_cols), loc in zip(groups.items(), group_locations):
                 if not disabled:
                     st.session_state.params[feat] = new_val
 
-                # 显示范围或结果
                 with c2:
                     st.caption(f"[{stat['min']:.3f}-{stat['max']:.3f}]")
                     if feat in st.session_state.results:
@@ -158,13 +153,11 @@ if 'verify' in st.session_state:
     mb_err = v.get('mass_balance_error', 0)
     mb_color = "success-text" if mb_err < 5.0 else "warning-text"
     chk1.markdown(f"**Mass Balance Error:** <span class='{mb_color}'>{mb_err:.2f}%</span>", unsafe_allow_html=True)
-    chk1.caption("Formula: Removal% ≈ (Ads × SLR × 100) / Initial_Conc")
     
     el_err = v.get('elemental_error', 0)
     el_msg = v.get('elemental_msg', 'N/A')
     el_color = "success-text" if el_err < 0.5 else "warning-text"
     chk2.markdown(f"**Elemental Sum:** <span class='{el_color}'>{el_msg}</span>", unsafe_allow_html=True)
-    chk2.caption("Formula: Total = C% + H% + O% + N% + S% ≈ 100%")
 else:
     chk1.markdown("Mass Balance: N/A")
     chk2.markdown("Elemental Sum: N/A")
@@ -173,7 +166,7 @@ else:
 st.markdown("---")
 if st.button("RUN OPTIMIZATION", type="primary", use_container_width=True):
     inputs = {}
-    # 收集分类变量
+    # 收集分类变量 (自动从 session_state 获取)
     for cat in st.session_state.backend.ui_cat_cols:
         key = cat if cat != 'activation-method' else 'activation-method'
         inputs[cat] = st.session_state[key]
@@ -184,7 +177,6 @@ if st.button("RUN OPTIMIZATION", type="primary", use_container_width=True):
         is_predict = st.session_state.get(f"chk_{feat}", False)
         inputs[feat] = {'value': val, 'is_predict': is_predict}
     
-    # 收集目标
     targets = {
         'ads': {'value': target_ads, 'is_constraint': use_ads},
         'rem': {'value': target_rem, 'is_constraint': use_rem}
