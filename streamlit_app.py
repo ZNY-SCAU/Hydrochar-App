@@ -5,19 +5,28 @@ from logic import ModelBackend
 # ================= 1. 网页配置 =================
 st.set_page_config(page_title="Hydrochar Optimization", layout="wide")
 
-# 注入 CSS (极致紧凑 + SCI 风格)
+# 注入 CSS (SCI 风格 + 紧凑布局)
 st.markdown("""
 <style>
     html, body, [class*="css"] { font-family: 'Times New Roman', serif; }
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
+    
+    /* 调整顶部留白 */
+    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+    
+    /* 标题样式 (完整显示，不缩写) */
     h1 { font-size: 1.6rem; color: #1A5276; margin-bottom: 0px; }
-    h4 { font-size: 1.0rem; color: #2C3E50; border-bottom: 1px solid #ddd; margin-bottom: 10px; padding-bottom: 5px; }
-    div[data-testid="stVerticalBlock"] > div { gap: 0.2rem; }
+    h3 { font-size: 1.2rem; color: #2C3E50; border-bottom: 2px solid #ddd; margin-top: 10px; margin-bottom: 10px; padding-bottom: 5px; font-weight: bold; }
+    h4 { font-size: 1.0rem; color: #2C3E50; border-bottom: 1px solid #eee; margin-bottom: 8px; padding-bottom: 4px; font-weight: bold; }
+    
+    /* 紧凑间距 */
+    div[data-testid="stVerticalBlock"] > div { gap: 0.3rem; }
     .stNumberInput { margin-bottom: 0px; }
-    .success-text { color: #27AE60; font-weight: bold; font-size: 0.8em; }
-    .lock-text { color: #95A5A6; font-style: italic; font-size: 0.8em; }
-    .check-pass { color: #27AE60; font-weight: bold; }
-    .check-fail { color: #E74C3C; font-weight: bold; }
+    
+    /* 状态文字 */
+    .success-text { color: #27AE60; font-weight: bold; font-size: 0.85em; }
+    .lock-text { color: #95A5A6; font-style: italic; font-size: 0.85em; }
+    
+    /* 隐藏菜单 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
@@ -41,11 +50,10 @@ USER_DEFAULTS = {
     'C(%)': 44.56, 'O(%)': 48.29
 }
 
-# 初始化 (带过滤)
+# 初始化参数 (严格过滤)
 if 'params' not in st.session_state:
     st.session_state.params = {}
     for feat in st.session_state.backend.ui_numeric_cols:
-        # 🔥 过滤：只初始化模型真正用到的特征
         if feat in st.session_state.backend.model_features:
             val = USER_DEFAULTS.get(feat, 0.0)
             st.session_state.params[feat] = val
@@ -83,32 +91,38 @@ def is_activation_locked():
         return True
     return False
 
-# ================= 4. 界面布局 =================
+# ================= 4. 界面布局 (全景版) =================
 
-st.title("Hydrochar Process Optimization System")
+st.title("Hydrochar Process Prediction & Optimization System")
 
-# --- 区域1: 实验条件 & 目标 ---
-with st.container():
-    c1, c2, c3 = st.columns([2, 1, 1])
-    with c1:
-        st.markdown("#### 1. Conditions")
-        if st.session_state.backend.ui_cat_cols:
-            cols_cat = st.columns(2)
-            for i, cat in enumerate(st.session_state.backend.ui_cat_cols):
-                opts = st.session_state.backend.cat_options.get(cat, [])
-                cols_cat[i % 2].selectbox(cat, opts, key=cat, label_visibility="collapsed")
-    with c2:
-        st.markdown("#### 2. Targets")
-        use_ads = st.checkbox("Ads. (mg/g)")
-        target_ads = st.number_input("Tgt Ads", disabled=not use_ads, label_visibility="collapsed")
-    with c3:
-        st.markdown("&nbsp;")
-        use_rem = st.checkbox("Rem. Rate (%)")
-        target_rem = st.number_input("Tgt Rem", disabled=not use_rem, label_visibility="collapsed")
+# --- 顶部区域：实验条件 & 优化目标 ---
+# 使用两列大布局，确保标题完整不换行
+top_c1, top_c2 = st.columns([1, 1])
 
-st.markdown("---")
+with top_c1:
+    st.markdown("### 1. Experimental Conditions")
+    if st.session_state.backend.ui_cat_cols:
+        # 内部再分两列
+        sub_c1, sub_c2 = st.columns(2)
+        for i, cat in enumerate(st.session_state.backend.ui_cat_cols):
+            opts = st.session_state.backend.cat_options.get(cat, [])
+            # 奇数列放左边，偶数列放右边
+            curr_col = sub_c1 if i % 2 == 0 else sub_c2
+            curr_col.selectbox(cat, opts, key=cat, label_visibility="visible")
 
-# --- 区域2: 工艺参数 (4列全景) ---
+with top_c2:
+    st.markdown("### 3. Optimization Targets") # 对应 main.py 的编号
+    t_c1, t_c2 = st.columns(2)
+    with t_c1:
+        use_ads = st.checkbox("Adsorption-NH₄⁺-N (mg/g)")
+        target_ads = st.number_input("Target Value", disabled=not use_ads, label_visibility="collapsed", key="tgt_ads")
+    with t_c2:
+        use_rem = st.checkbox("Removal Rate (%)")
+        target_rem = st.number_input("Target Value", disabled=not use_rem, label_visibility="collapsed", key="tgt_rem")
+
+# --- 中部区域：工艺参数 (4列全景) ---
+st.markdown("### 2. Process Parameters")
+
 structure_groups = {
     'Raw Material': ['H(%)', 'N(%)', 'S(%)', '(O+N)/C', 'H/C', 'C(%)', 'O(%)'],
     'Hydrothermal': ['hydrothermal-T(℃)', 'hydrothermal-time(h)', 'hydrothermal-SLR(g/ml)'],
@@ -139,7 +153,7 @@ for i, g_name in enumerate(group_names):
                 stat = st.session_state.backend.stats.get(feat, {'min':0, 'max':100})
                 
                 # 第一行：勾选 + 范围
-                sub_c1, sub_c2 = st.columns([1, 1])
+                sub_c1, sub_c2 = st.columns([1.2, 0.8])
                 is_opt = sub_c1.checkbox(feat, key=f"chk_{feat}")
                 sub_c2.caption(f"{stat['min']:.0f}~{stat['max']:.0f}")
                 
@@ -170,22 +184,19 @@ for i, g_name in enumerate(group_names):
                         res_v = st.session_state.results[feat]
                         st.markdown(f"<div style='text-align:right; color:#27AE60; font-weight:bold'>✅ {res_v:.3f}</div>", unsafe_allow_html=True)
 
-# --- 区域3: 底部控制台 (运行 + 结果 + 校验) ---
 st.markdown("---")
 
-# 创建底部两列：左边是按钮，右边是详细仪表盘
+# --- 底部区域：运行按钮 & 结果面板 & 4. Check ---
 col_btn, col_dash = st.columns([1, 4])
 
 with col_btn:
     st.write("") 
     st.write("") 
-    btn_run = st.button("🚀 RUN", type="primary", use_container_width=True)
+    btn_run = st.button("🚀 RUN OPTIMIZATION", type="primary", use_container_width=True)
 
 with col_dash:
-    # 结果容器
     res_container = st.container()
 
-# 运行逻辑
 if btn_run:
     inputs = {}
     for cat in st.session_state.backend.ui_cat_cols:
@@ -211,7 +222,6 @@ if btn_run:
     if res['success']:
         st.session_state.pred_ads = res['ads']
         st.session_state.pred_rem = res['rem']
-        # 保存验证数据
         st.session_state.verify = res.get('verification', {})
         st.session_state.results = {}
         if res['mode'] == 'reverse':
@@ -224,24 +234,22 @@ if btn_run:
 # 结果显示逻辑 (包含 Check 模块)
 if 'pred_ads' in st.session_state:
     with res_container:
-        # 使用 4 列布局显示所有关键指标
+        st.markdown("### 4. Check & Results") # 恢复 main.py 的编号
         r1, r2, r3, r4 = st.columns(4)
         
-        # 1. 预测结果
-        r1.metric("Predicted Ads.", f"{st.session_state.pred_ads:.2f}", "mg/g")
-        r2.metric("Predicted Rem.", f"{st.session_state.pred_rem:.2f}", "%")
+        # 结果
+        r1.metric("Predicted Ads. (mg/g)", f"{st.session_state.pred_ads:.2f}")
+        r2.metric("Predicted Rem. (%)", f"{st.session_state.pred_rem:.2f}")
         
-        # 2. Check 纠错验证模块
+        # Check 模块
         v = st.session_state.verify
-        
-        # 质量平衡
         mb = v.get('mass_balance_error', 0)
-        mb_label = f"{mb:.2f}%"
-        # 颜色逻辑：误差<5%为绿，否则为红
-        r3.metric("Mass Balance Err", mb_label, delta="✔ Pass" if mb < 5 else "❌ High Error", delta_color="normal" if mb < 5 else "inverse")
+        # 质量平衡
+        r3.metric("Mass Balance Err", f"{mb:.2f}%", 
+                 delta="✔ Pass" if mb < 5 else "❌ Check", delta_color="normal" if mb < 5 else "inverse")
         
         # 元素平衡
         el_msg = v.get('elemental_msg', 'N/A')
         el_err = v.get('elemental_error', 0)
-        # 颜色逻辑：误差<0.5%为绿
-        r4.metric("Elem. Sum", el_msg, delta="✔ Pass" if el_err < 0.5 else "❌ Check Inputs", delta_color="normal" if el_err < 0.5 else "inverse")
+        r4.metric("Elemental Sum", el_msg, 
+                 delta="✔ Pass" if el_err < 0.5 else "❌ Check", delta_color="normal" if el_err < 0.5 else "inverse")
