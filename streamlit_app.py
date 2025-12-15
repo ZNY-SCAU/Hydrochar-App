@@ -64,21 +64,16 @@ def check_activation_logic():
     method = st.session_state.get('activation-method', '')
     
     # 判定 A: 数值归零 -> 方法变 '0'
-    # 只要有一个关键参数极小，就认为没有活化，重置方法
     if slr <= 0.001 or conc <= 0.001 or time <= 0.001:
-        # 找到 '0' 在选项中的位置，通常是第2个 (索引1)，但也可能是别的，这里做个防护
         opts = st.session_state.backend.cat_options.get('activation-method', [])
         target_opt = '0'
-        # 尝试在选项里找 '0' 或者包含 '基准' 的选项
         for opt in opts:
             if opt == '0' or '基准' in opt:
                 target_opt = opt
                 break
         
-        # 只有当前方法不是 '0' 时才强制刷新，避免死循环
         if method != target_opt:
             st.session_state['activation-method'] = target_opt
-            # 同时也把其他数值强行抹平（为了逻辑一致性）
             st.session_state.params['activation-SLR(g/L)'] = 0.0
             st.session_state.params['activator-concentration(mol/L)'] = 0.0
             st.session_state.params['activation-time(h)'] = 0.0
@@ -87,7 +82,6 @@ def check_activation_logic():
 def is_activation_locked():
     """判断活化参数是否应该锁定 (灰色不可选)"""
     method = str(st.session_state.get('activation-method', ''))
-    # 如果方法是 '0'，或者含 '基准'，则锁定数值输入
     if method == '0' or '(基准)' in method or method == '':
         return True
     return False
@@ -110,18 +104,17 @@ if st.session_state.backend.ui_cat_cols:
     for i, cat in enumerate(st.session_state.backend.ui_cat_cols):
         opts = st.session_state.backend.cat_options.get(cat, [])
         
-        # 这里的 key 必须固定，方便后面调用
-        st.session_state[cat] = cols_cat[i].selectbox(
+        # 🔥🔥🔥【已修正】直接调用，不要赋值给 session_state，Streamlit 会自动处理 🔥🔥🔥
+        cols_cat[i].selectbox(
             cat, 
             opts, 
             key=cat, 
-            # 如果是活化方法改变，不需要回调数值检查，因为是单向控制
+            # 活化方法的改变是单向控制，不需要回调
         )
 
 # --- 2. Process Parameters ---
 st.markdown("### 2. Process Parameters")
 
-# 定义期望的分组结构 (用于排版)
 structure_groups = {
     'Raw Material': ['H(%)', 'N(%)', 'S(%)', '(O+N)/C', 'H/C', 'C(%)', 'O(%)'],
     'Hydrothermal': ['hydrothermal-T(℃)', 'hydrothermal-time(h)', 'hydrothermal-SLR(g/ml)'],
@@ -129,10 +122,8 @@ structure_groups = {
     'Adsorption': ['adsorption-SLR(g/L)', 'RPM(r/min)', 'adsorption-time(h)', 'pH', 'initial-NH4+-N(mg/L)', 'adsorption-T(℃)']
 }
 
-# 活化相关的特征名列表，用于判断是否锁定
 activation_feats = structure_groups['Activation']
 
-# 创建布局
 row1 = st.columns(2)
 row2 = st.columns(2)
 locs = [row1[0], row1[1], row2[0], row2[1]]
@@ -141,8 +132,6 @@ for (g_name, g_feats), loc in zip(structure_groups.items(), locs):
     with loc:
         st.markdown(f"#### {g_name}")
         
-        # 🚀【关键修正】过滤特征：只显示模型真正需要的特征！
-        # 如果模型里没这个特征（已被共线性剔除），就不显示
         valid_feats = [f for f in g_feats if f in st.session_state.backend.ui_numeric_cols]
         
         if not valid_feats:
@@ -153,47 +142,35 @@ for (g_name, g_feats), loc in zip(structure_groups.items(), locs):
             stat = st.session_state.backend.stats.get(feat, {'min':0, 'max':100})
             c1, c2 = st.columns([2, 1])
             
-            # 优化/预测勾选框
             is_opt = c1.checkbox(feat, key=f"chk_{feat}")
             
-            # 判断是否需要锁定
-            # 1. 如果勾选了优化 -> 锁定
-            # 2. 如果是活化参数 且 方法选了0 -> 锁定
             should_lock = is_opt
             if feat in activation_feats and is_activation_locked():
                 should_lock = True
-                # 强制归零显示
                 current_val = 0.0
             else:
                 current_val = st.session_state.params.get(feat, 0.0)
 
-            # 输入框
             new_val = c1.number_input(
                 label=feat,
                 value=float(current_val),
                 label_visibility="collapsed",
                 disabled=should_lock,
                 key=f"in_{feat}",
-                # 只有活化参数变化时，才触发逻辑检查
                 on_change=on_numeric_change if feat in activation_feats else None
             )
             
-            # 更新 Session State (如果是锁定的，强制存0；否则存输入值)
             if should_lock and feat in activation_feats and is_activation_locked():
                 st.session_state.params[feat] = 0.0
             elif not should_lock:
                 st.session_state.params[feat] = new_val
 
-            # 右侧状态显示
             with c2:
-                # 如果被方法锁定，显示 Lock 状态
                 if feat in activation_feats and is_activation_locked():
                     st.markdown("<span class='lock-text'>🔒 Locked (Method=0)</span>", unsafe_allow_html=True)
-                # 否则显示正常范围或预测结果
                 else:
                     st.caption(f"[{stat['min']:.2f}-{stat['max']:.2f}]")
                     if feat in st.session_state.results:
-                        # 显示反推结果
                         res_val = st.session_state.results[feat]
                         st.markdown(f"<span class='success-text'>✅ {res_val:.4f}</span>", unsafe_allow_html=True)
 
@@ -214,38 +191,30 @@ with t2:
 # --- 4. Run ---
 st.markdown("---")
 if st.button("RUN OPTIMIZATION", type="primary", use_container_width=True):
-    # 构造输入
-    final_inputs = {}
-    
-    # 1. 放入分类特征
+    inputs = {}
     for cat in st.session_state.backend.ui_cat_cols:
-        final_inputs[cat] = st.session_state[cat]
+        inputs[cat] = st.session_state[cat]
     
-    # 2. 放入数值特征
     for feat in st.session_state.backend.ui_numeric_cols:
-        # 再次确认：如果是活化参数且锁定了，传0
         if feat in activation_feats and is_activation_locked():
             val = 0.0
         else:
             val = st.session_state.params.get(feat, 0.0)
-            
         is_predict = st.session_state.get(f"chk_{feat}", False)
-        final_inputs[feat] = {'value': val, 'is_predict': is_predict}
+        inputs[feat] = {'value': val, 'is_predict': is_predict}
     
-    # 3. 构造目标
     targets = {
         'ads': {'value': target_ads, 'is_constraint': use_ads},
         'rem': {'value': target_rem, 'is_constraint': use_rem}
     }
     
     with st.spinner("Calculating..."):
-        res = st.session_state.backend.run_task(final_inputs, targets)
+        res = st.session_state.backend.run_task(inputs, targets)
     
     if res['success']:
         st.session_state.pred_ads = res['ads']
         st.session_state.pred_rem = res['rem']
         st.session_state.results = {}
-        # 如果是反推模式，保存结果到 inputs 里显示
         if res['mode'] == 'reverse':
             for k, v in res['optimized_params'].items():
                 st.session_state.results[k] = v
