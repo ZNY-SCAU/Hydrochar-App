@@ -79,11 +79,22 @@ def trigger_lock_logic():
         if str(opt) == '0' or '基准' in str(opt):
             target_opt = opt; break
     
+    # 修改 Session State，因为是在回调中执行，所以是安全的
     st.session_state['activation-method'] = target_opt
     st.session_state.params['activation-SLR(g/L)'] = 0.0
     st.session_state.params['activator-concentration(mol/L)'] = 0.0
     st.session_state.params['activation-time(h)'] = 0.0
     st.session_state.params['activation-T(℃)'] = 0.0
+
+def handle_ok_click(input_key):
+    """
+    🔥 新增的回调函数 🔥
+    当用户点击 OK 按钮时触发，读取对应输入框的值，判断是否触发锁定。
+    """
+    # 从 session_state 获取用户刚刚输入的值
+    current_val = st.session_state.get(input_key, 0.0)
+    if current_val <= 0.001:
+        trigger_lock_logic()
 
 def is_activation_locked():
     """判断是否锁定：仅当Method为0时锁定"""
@@ -166,19 +177,21 @@ for i, g_name in enumerate(group_names):
                     # 🚀 分成两列：输入框 + 确认钮
                     col_in, col_btn = st.columns([3, 1])
                     
+                    # 注意：输入框必须在按钮之前定义，这样 args 才能引用到 key
                     new_val = col_in.number_input(
                         label=feat, value=float(display_val),
                         label_visibility="collapsed", disabled=should_lock,
                         key=f"in_{feat}", format="%.4f"
                     )
                     
-                    # 🚀 确认按钮逻辑：只有点了它，才判定是否 <= 0.001
-                    if col_btn.button("🆗", key=f"btn_{feat}", disabled=should_lock):
-                        if new_val <= 0.001:
-                            trigger_lock_logic()
-                            st.rerun() # 立即刷新以锁定界面
-                        else:
-                            pass # 大于0，什么都不做，继续保持
+                    # 🔥 修改点：使用 on_click 回调来处理逻辑
+                    col_btn.button(
+                        "🆗", 
+                        key=f"btn_{feat}", 
+                        disabled=should_lock,
+                        on_click=handle_ok_click,  # 调用回调函数
+                        args=(f"in_{feat}",)       # 传入输入框的 key
+                    )
                             
                 else:
                     # 普通输入框
